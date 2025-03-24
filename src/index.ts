@@ -16,7 +16,7 @@ dotenv.config({
 
 const port = process.env.PORT || 3010;
 app.use("/healthcheck", (req, res) => {
-	res.status(200).send("The Cart Service is ALIVE!");
+	res.status(200).send("The shipping Service is ALIVE!");
 });
 
 app.use("/shipping", shippingRoutes);

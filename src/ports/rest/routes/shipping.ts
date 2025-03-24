@@ -36,9 +36,16 @@ router.get(
 router.put(
 	"/update/:id",
 	verifyToken,
-	body("status")
-		.isIn(["Pending", "Shipped", "Delivered"])
-		.withMessage("Invalid status"),
+	body("status").custom((value) => {
+		const allowed = ["Pending", "Shipped", "Delivered"];
+		console.log("Validating status:", value);
+		console.log("Allowed values:", allowed);
+		console.log("Type of value:", typeof value);
+		console.log("Includes check result:", allowed.includes(value));
+		const isValid = allowed.includes(value);
+		if (!isValid) throw new Error("Invalid status");
+		return true;
+	}),
 	body("tracking_number")
 		.optional()
 		.isString()

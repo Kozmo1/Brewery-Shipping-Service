@@ -6,6 +6,7 @@ import { AuthRequest } from "../middleware/auth";
 
 export class ShippingController {
 	private readonly breweryApiUrl = config.breweryApiUrl;
+	private readonly orderServiceUrl = "http://localhost:3002"; // Add to config.ts later
 
 	async createShipment(
 		req: AuthRequest,
@@ -18,7 +19,8 @@ export class ShippingController {
 			return;
 		}
 
-		if (req.user?.id !== req.body.user_id.toString()) {
+		const userId = req.user?.id;
+		if (userId !== parseInt(req.body.user_id, 10)) {
 			res.status(403).json({ message: "Unauthorized" });
 			return;
 		}
@@ -27,15 +29,27 @@ export class ShippingController {
 			const orderResponse = await axios.get(
 				`${this.breweryApiUrl}/api/order/${req.body.order_id}`
 			);
-			if (orderResponse.data.user_id !== req.body.user_id) {
+			if (orderResponse.data.UserId !== userId) {
+				// PascalCase from C# model
 				res.status(403).json({
 					message: "Order does not belong to user",
 				});
 				return;
 			}
+
+			const shipmentData = {
+				UserId: userId,
+				OrderId: parseInt(req.body.order_id, 10),
+				Address: req.body.address,
+				City: req.body.city,
+				Country: req.body.country,
+				PostalCode: req.body.postal_code,
+				Status: "Pending",
+			};
+
 			const response = await axios.post(
 				`${this.breweryApiUrl}/api/shipping`,
-				req.body
+				shipmentData
 			);
 			res.status(201).json(response.data);
 		} catch (error: any) {
@@ -60,7 +74,7 @@ export class ShippingController {
 			const response = await axios.get(
 				`${this.breweryApiUrl}/api/shipping/${req.params.id}`
 			);
-			if (req.user?.id !== response.data.userId.toString()) {
+			if (req.user?.id !== response.data.UserId) {
 				res.status(403).json({ message: "Unauthorized" });
 				return;
 			}
@@ -82,8 +96,11 @@ export class ShippingController {
 		res: Response,
 		next: NextFunction
 	): Promise<void> {
+		console.log("Request body:", req.body);
 		const errors = validationResult(req);
+		console.log("Raw validation result:", errors.array());
 		if (!errors.isEmpty()) {
+			console.log("Validation errors:", errors.array());
 			res.status(400).json({ errors: errors.array() });
 			return;
 		}
@@ -92,34 +109,32 @@ export class ShippingController {
 			const shippingResponse = await axios.get(
 				`${this.breweryApiUrl}/api/shipping/${req.params.id}`
 			);
-			if (req.user?.id !== shippingResponse.data.userId.toString()) {
+			if (req.user?.id !== shippingResponse.data.UserId) {
 				res.status(403).json({ message: "Unauthorized" });
 				return;
 			}
+
+			const updateData = {
+				Status: req.body.status,
+				TrackingNumber:
+					req.body.tracking_number ||
+					shippingResponse.data.TrackingNumber,
+			};
+
 			const response = await axios.put(
 				`${this.breweryApiUrl}/api/shipping/${req.params.id}`,
-				req.body
+				updateData
 			);
 
-			// Update order status and notify
+			// Sync with Order Service, forwarding the token
 			if (req.body.status) {
 				await axios.put(
-					`${this.breweryApiUrl.replace("5089", "3002")}/order/${
-						shippingResponse.data.orderId
-					}/status`,
+					`${this.orderServiceUrl}/order/${shippingResponse.data.OrderId}/status`,
+					{ status: req.body.status },
 					{
-						status: req.body.status,
-					}
-				);
-				await axios.post(
-					`${this.breweryApiUrl.replace(
-						"5089",
-						"3005"
-					)}/notifications/order-status`,
-					{
-						user_id: shippingResponse.data.userId,
-						order_id: shippingResponse.data.orderId,
-						status: req.body.status,
+						headers: {
+							Authorization: req.headers.authorization,
+						},
 					}
 				);
 			}
@@ -147,7 +162,7 @@ export class ShippingController {
 			const orderResponse = await axios.get(
 				`${this.breweryApiUrl}/api/order/${req.params.order_id}`
 			);
-			if (req.user?.id !== orderResponse.data.user_id.toString()) {
+			if (req.user?.id !== orderResponse.data.UserId) {
 				res.status(403).json({ message: "Unauthorized" });
 				return;
 			}
@@ -177,11 +192,11 @@ export class ShippingController {
 			const shippingResponse = await axios.get(
 				`${this.breweryApiUrl}/api/shipping/${req.params.id}`
 			);
-			if (req.user?.id !== shippingResponse.data.userId.toString()) {
+			if (req.user?.id !== shippingResponse.data.UserId) {
 				res.status(403).json({ message: "Unauthorized" });
 				return;
 			}
-			if (shippingResponse.data.status !== "Pending") {
+			if (shippingResponse.data.Status !== "Pending") {
 				res.status(400).json({
 					message: "Can only delete pending shipments",
 				});
